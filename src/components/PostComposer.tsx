@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Upload, Send, Image } from "lucide-react";
 import { LucideIcon } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Platform {
   id: string;
@@ -20,9 +21,10 @@ interface Platform {
 interface PostComposerProps {
   connectedPlatforms: Record<string, boolean>;
   platforms: Platform[];
+  onPostSuccess?: () => void;
 }
 
-const PostComposer = ({ connectedPlatforms, platforms }: PostComposerProps) => {
+const PostComposer = ({ connectedPlatforms, platforms, onPostSuccess }: PostComposerProps) => {
   const [postContent, setPostContent] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({});
   const [isPosting, setIsPosting] = useState(false);
@@ -38,7 +40,7 @@ const PostComposer = ({ connectedPlatforms, platforms }: PostComposerProps) => {
   };
 
   const handleImageUpload = () => {
-    // Mock image upload
+    // Mock image upload for now
     setHasImage(!hasImage);
     toast.success(hasImage ? "Image removed" : "Image uploaded successfully!");
   };
@@ -49,22 +51,39 @@ const PostComposer = ({ connectedPlatforms, platforms }: PostComposerProps) => {
       return;
     }
 
-    const selectedCount = Object.values(selectedPlatforms).filter(Boolean).length;
-    if (selectedCount === 0) {
+    const selectedPlatformIds = Object.entries(selectedPlatforms)
+      .filter(([_, selected]) => selected)
+      .map(([platformId, _]) => platformId);
+
+    if (selectedPlatformIds.length === 0) {
       toast.error("Please select at least one platform to post to");
       return;
     }
 
     setIsPosting(true);
     
-    // Mock posting process
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    toast.success(`Post published to ${selectedCount} platform${selectedCount > 1 ? 's' : ''}!`);
-    setPostContent("");
-    setSelectedPlatforms({});
-    setHasImage(false);
-    setIsPosting(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-post', {
+        body: {
+          content: postContent,
+          platforms: selectedPlatformIds,
+          imageUrl: hasImage ? 'mock-image-url' : null
+        }
+      });
+
+      if (error) throw error;
+
+      toast.success(`Post published to ${selectedPlatformIds.length} platform${selectedPlatformIds.length > 1 ? 's' : ''}!`);
+      setPostContent("");
+      setSelectedPlatforms({});
+      setHasImage(false);
+      onPostSuccess?.();
+    } catch (error: any) {
+      console.error('Post error:', error);
+      toast.error(error.message || 'Failed to publish post');
+    } finally {
+      setIsPosting(false);
+    }
   };
 
   return (

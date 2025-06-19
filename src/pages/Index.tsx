@@ -1,10 +1,8 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { 
   Share2, 
@@ -12,24 +10,51 @@ import {
   Twitter, 
   MessageCircle, 
   Instagram, 
-  Upload,
   User,
   Settings,
   LogOut,
-  CheckCircle,
-  AlertCircle
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import SocialPlatformCard from "@/components/SocialPlatformCard";
 import PostComposer from "@/components/PostComposer";
 import Navigation from "@/components/Navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const Index = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [connectedPlatforms, setConnectedPlatforms] = useState({
-    facebook: false,
-    twitter: false,
-    telegram: false,
-    instagram: false
+  const [user, setUser] = useState(null);
+  const queryClient = useQueryClient();
+
+  // Fetch user session
+  useEffect(() => {
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user || null);
+    };
+    
+    getSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Fetch social connections
+  const { data: connections = [], refetch: refetchConnections } = useQuery({
+    queryKey: ['social-connections'],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from('social_connections')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
   });
 
   const platforms = [
@@ -63,23 +88,58 @@ const Index = () => {
     }
   ];
 
-  const handleLogin = () => {
-    // Mock authentication
-    setIsAuthenticated(true);
-    toast.success("Successfully logged in with Google!");
+  const handleLogin = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
+      if (error) throw error;
+    } catch (error) {
+      console.error('Login error:', error);
+      toast.error('Failed to login');
+    }
   };
 
-  const handleConnectPlatform = (platformId: string) => {
-    setConnectedPlatforms(prev => ({
-      ...prev,
-      [platformId]: !prev[platformId as keyof typeof prev]
-    }));
-    
-    const platform = platforms.find(p => p.id === platformId);
-    toast.success(`${platform?.name} ${connectedPlatforms[platformId as keyof typeof connectedPlatforms] ? 'disconnected' : 'connected'}!`);
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      queryClient.clear();
+      toast.success('Logged out successfully');
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('Failed to logout');
+    }
   };
 
-  if (!isAuthenticated) {
+  const handleConnectPlatform = async (platformId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('social-auth', {
+        body: { platform: platformId, action: 'connect' }
+      });
+      
+      if (error) throw error;
+      
+      // Redirect to OAuth URL
+      if (data.authUrl) {
+        window.location.href = data.authUrl;
+      }
+    } catch (error) {
+      console.error('Connection error:', error);
+      toast.error(`Failed to connect ${platformId}`);
+    }
+  };
+
+  const connectedPlatforms = platforms.reduce((acc, platform) => {
+    const connection = connections.find(conn => conn.platform === platform.id);
+    acc[platform.id] = !!connection;
+    return acc;
+  }, {} as Record<string, boolean>);
+
+  if (!user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <Card className="w-full max-w-md shadow-xl">
@@ -114,7 +174,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <Navigation onLogout={() => setIsAuthenticated(false)} />
+      <Navigation onLogout={handleLogout} />
       
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Header */}
@@ -137,7 +197,7 @@ const Index = () => {
               <SocialPlatformCard
                 key={platform.id}
                 platform={platform}
-                isConnected={connectedPlatforms[platform.id as keyof typeof connectedPlatforms]}
+                isConnected={connectedPlatforms[platform.id]}
                 onConnect={() => handleConnectPlatform(platform.id)}
               />
             ))}
@@ -148,6 +208,10 @@ const Index = () => {
         <PostComposer 
           connectedPlatforms={connectedPlatforms}
           platforms={platforms}
+          onPostSuccess={() => {
+            // Refresh any data if needed
+            refetchConnections();
+          }}
         />
 
         {/* Recent Posts */}

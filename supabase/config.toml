@@ -1,1 +1,8 @@
+
 project_id = "nzxopratstazmnfhyjnx"
+
+[functions.social-auth]
+verify_jwt = false
+
+[functions.create-post]
+verify_jwt = true
