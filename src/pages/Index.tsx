@@ -11,8 +11,6 @@ import {
   MessageCircle, 
   Instagram, 
   User,
-  Settings,
-  LogOut,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import SocialPlatformCard from "@/components/SocialPlatformCard";
@@ -20,21 +18,34 @@ import PostComposer from "@/components/PostComposer";
 import Navigation from "@/components/Navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+interface User {
+  id: string;
+  email?: string;
+}
+
 const Index = () => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const queryClient = useQueryClient();
 
   // Fetch user session
   useEffect(() => {
     const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user || null);
+      } catch (error) {
+        console.error('Error fetching session:', error);
+      } finally {
+        setLoading(false);
+      }
     };
     
     getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null);
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -51,7 +62,10 @@ const Index = () => {
         .eq('user_id', user.id)
         .eq('is_active', true);
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching connections:', error);
+        throw error;
+      }
       return data;
     },
     enabled: !!user,
@@ -139,6 +153,14 @@ const Index = () => {
     return acc;
   }, {} as Record<string, boolean>);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -209,7 +231,6 @@ const Index = () => {
           connectedPlatforms={connectedPlatforms}
           platforms={platforms}
           onPostSuccess={() => {
-            // Refresh any data if needed
             refetchConnections();
           }}
         />

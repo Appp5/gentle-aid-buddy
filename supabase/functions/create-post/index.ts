@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
 
     const { content, platforms, imageUrl } = await req.json();
 
-    console.log('Create post request:', { content, platforms, imageUrl, userId: user.id });
+    console.log('Create post request:', { content,  platformsIds: platforms, imageUrl, userId: user.id });
 
     // Get user's social connections
     const { data: connections, error: connectionsError } = await supabaseClient
